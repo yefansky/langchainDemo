@@ -81,7 +81,7 @@ Answer: Let's work this out in a step by step way to be sure we have the right a
 prompt = PromptTemplate.from_template(template)
 llm_chain = prompt | llama_llm
 
-question = "What NFL team won the Super Bowl in the year Justin Bieber was born?"
+question = "write a yolov1 algorithm, use python: "
 
 # 调用流式输出方法
 for output in llama_llm._stream(question):
