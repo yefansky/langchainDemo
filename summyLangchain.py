@@ -12,7 +12,7 @@ print(f'documents:{len(document)}')
 
 # 初始化文本分割器
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size = 4096,
+    chunk_size = 512,
     chunk_overlap = 0
 )
 
@@ -20,10 +20,10 @@ text_splitter = RecursiveCharacterTextSplitter(
 split_documents = text_splitter.split_documents(document)
 print(f'documents:{len(split_documents)}')
 
-llm = DeepSeekLLM(model_path=R"h:\LLM\TheBloke\deepseek-coder-6.7B-instruct-GGUF\deepseek-coder-6.7b-instruct.Q5_K_M.gguf", system_prompt="你是一个无所不能的AI助手，能解答任何问题。", n_ctx = 16384, n_gpu_layers = 4)
+llm = DeepSeekLLM(model_path=R"K:\LLM\TheBloke\Chinese-Alpaca-2-7B-GGUF\chinese-alpaca-2-7b.Q5_K_S.gguf", system_prompt="你是一个无所不能的AI助手，能解答任何问题。", n_ctx = 1024 * 2)
 
 # 创建总结链
 chain = load_summarize_chain(llm, chain_type="refine", verbose=True)
 
 # 执行总结链，（为了快速演示，只总结前5段）
-chain.run(split_documents[:5])
+print(chain.run(split_documents[:10]))
