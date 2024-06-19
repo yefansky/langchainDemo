@@ -3,6 +3,7 @@ from langchain_core.language_models.llms import LLM
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from typing import Any, Dict, Iterator, List, Mapping, Optional
+import sys
 
 class LlamaWrapper:
     def __init__(self, model_path, n_gpu_layers=-1, seed=1337, n_ctx=2048, chat_format="chatml", verbose=False):
@@ -71,7 +72,7 @@ class LlamaLLM(LLM):
 
 # 创建 LangChain 链
 llama_llm = LlamaLLM(
-    model_path=R"h:\LLM\TheBloke\deepseek-coder-6.7B-instruct-GGUF\deepseek-coder-6.7b-instruct.Q5_K_M.gguf"
+    model_path=R"K:\LLM\TheBloke\Chinese-Alpaca-2-7B-GGUF\chinese-alpaca-2-7b.Q5_K_S.gguf"
 )
 
 template = """Question: {question}
@@ -81,8 +82,9 @@ Answer: Let's work this out in a step by step way to be sure we have the right a
 prompt = PromptTemplate.from_template(template)
 llm_chain = prompt | llama_llm
 
-question = "write a yolov1 algorithm, use python: "
+question = "请评价一下射雕英雄传里的黄蓉，介绍一下她的故事，出彩的点"
 
 # 调用流式输出方法
 for output in llama_llm._stream(question):
     print(output, end="")
+    sys.stdout.flush()
