@@ -1,7 +1,7 @@
 from DeepSeekLLM import DeepSeekLLM
-from langchain.document_loaders import UnstructuredFileLoader
 from langchain.chains.summarize import load_summarize_chain
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import UnstructuredFileLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # 导入文本
 #loader = UnstructuredFileLoader("sample_data/nginx.c")
@@ -12,7 +12,7 @@ print(f'documents:{len(document)}')
 
 # 初始化文本分割器
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size = 4096,
+    chunk_size = 512,
     chunk_overlap = 0
 )
 
@@ -20,10 +20,12 @@ text_splitter = RecursiveCharacterTextSplitter(
 split_documents = text_splitter.split_documents(document)
 print(f'documents:{len(split_documents)}')
 
-llm = DeepSeekLLM(model_path=R"h:\LLM\TheBloke\deepseek-coder-6.7B-instruct-GGUF\deepseek-coder-6.7b-instruct.Q5_K_M.gguf", system_prompt="你是一个无所不能的AI助手，能解答任何问题。", n_ctx = 16384, n_gpu_layers = 4)
+llm = DeepSeekLLM(model_path=R"H:\LLM\TheBloke\deepseek-llm-7B-chat-GGUF\deepseek-llm-7b-chat.Q3_K_S.gguf", user_system_prompt="请用中文思考，用中文回答：", n_ctx = 1024, n_gpu_layers=-1, offload_kqv=True, flash_attn=True)
 
 # 创建总结链
 chain = load_summarize_chain(llm, chain_type="refine", verbose=True)
 
 # 执行总结链，（为了快速演示，只总结前5段）
-chain.run(split_documents[:5])
+output = chain.invoke(split_documents[:15])
+
+print(output['output_text'])
