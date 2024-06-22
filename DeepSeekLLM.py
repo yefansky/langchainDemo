@@ -1,7 +1,6 @@
 from llama_cpp import Llama
 from langchain_core.language_models.llms import LLM
 from typing import Any, Dict, Iterator, List, Mapping, Optional
-from pydantic import BaseModel
 
 class LlamaWrapper:
     def __init__(self, model_path, n_gpu_layers=-1, seed=1337, n_ctx=2048, chat_format="chatml", verbose=False, **kwargs):
@@ -76,3 +75,4 @@ class DeepSeekLLM(LLM):
     @property
     def llm_type(self) -> str:
         return self._llm_type
+    
