@@ -3,7 +3,6 @@ from langchain_core.language_models.llms import LLM
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from typing import Any, Dict, Iterator, List, Mapping, Optional
-import sys
 
 class LlamaWrapper:
     def __init__(self, model_path, n_gpu_layers=-1, seed=1337, n_ctx=2048, chat_format="chatml", verbose=False):
@@ -72,7 +71,7 @@ class LlamaLLM(LLM):
 
 # 创建 LangChain 链
 llama_llm = LlamaLLM(
-    model_path=R"K:\LLM\TheBloke\Chinese-Alpaca-2-7B-GGUF\chinese-alpaca-2-7b.Q5_K_S.gguf"
+    model_path=R"H:\LLM\TheBloke\deepseek-llm-7B-chat-GGUF\deepseek-llm-7b-chat.Q3_K_S.gguf"
 )
 
 template = """Question: {question}
@@ -86,5 +85,4 @@ question = "请评价一下射雕英雄传里的黄蓉，介绍一下她的故�
 
 # 调用流式输出方法
 for output in llama_llm._stream(question):
-    print(output, end="")
-    sys.stdout.flush()
+    print(output, end="", flush=True)
