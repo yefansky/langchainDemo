@@ -3,7 +3,6 @@ import os
 from langchain_community.llms import Ollama
 from langchain.prompts import PromptTemplate
 from langchain.memory import ConversationSummaryMemory
-from langchain.schema.runnable import RunnableSequence
 
 # 配置日志
 def setup_logging(debug_mode):
@@ -58,13 +57,58 @@ def create_conversation_chain(llm):
     )
     return conversation_prompt_template | llm
 
-def create_review_chain(llm):
-    """创建审查链"""
-    review_prompt_template = PromptTemplate(
-        input_variables=["response", "review_rules"],
-        template="审查规则：{review_rules}\n\n根据这些规则，请审查并修改以下回复：\n{response}\n\n如果符合规则请原样输出，如果不符合规则输出 ..."
+def create_sensitivity_filter(llm, sensitivity_rules):
+    """创建敏感话题过滤器"""
+    filter_prompt_template = PromptTemplate(
+        input_variables=["text", "sensitivity_rules"],
+        template="""
+        以下是敏感话题的描述：
+        {sensitivity_rules}
+
+        请根据这些描述判断以下文本是否涉及敏感话题，违反其中任何一条都视做敏感话题：
+        文本：{text}
+
+        请返回一个置信度分数（0-1）表示文本是否涉及敏感话题。如果置信度高于0.5，则说明涉及敏感话题。"""
     )
-    return review_prompt_template | llm
+    
+    def filter_sensitive_text(text):
+        prompt = filter_prompt_template.format(text=text, sensitivity_rules=sensitivity_rules)
+        try:
+            result = llm.invoke(prompt)
+            confidence = float(result.strip())
+            if confidence > 0.5:
+                return True
+            return False
+        except Exception as e:
+            logging.error(f"敏感话题检测发生错误: {e}")
+            return False
+
+    return filter_sensitive_text
+
+def create_review_chain(llm, review_rules):
+    """创建文本审查链"""
+    review_prompt_template = PromptTemplate(
+        input_variables=["text", "review_rules"],
+        template="""
+        以下是审查规则：
+        {review_rules}
+
+        请根据这些规则润色以下文本：
+        文本：{text}
+
+        请返回润色后的文本。"""
+    )
+    
+    def review_text(text):
+        prompt = review_prompt_template.format(text=text, review_rules=review_rules)
+        try:
+            result = llm.invoke(prompt)
+            return result.strip()
+        except Exception as e:
+            logging.error(f"文本审查发生错误: {e}")
+            return text
+
+    return review_text
 
 def extract_role_name(llm, character_config):
     """使用 LLM 从角色配置中提取角色名"""
@@ -85,11 +129,13 @@ def chat(debug_mode=False):
     setup_logging(debug_mode)
     
     character_config_path = 'botconfig/character_config.txt'
-    review_rules_config_path = 'botconfig/review_rules.txt'
+    sensitivity_rules_path = 'botconfig/sensitivity_rules.txt'
+    review_rules_path = 'botconfig/review_rules.txt'
 
     # 加载配置
     character_config = load_text_config(character_config_path)
-    review_rules_config = load_text_config(review_rules_config_path)
+    sensitivity_rules = load_text_config(sensitivity_rules_path)
+    review_rules = load_text_config(review_rules_path)
     
     # 初始化 LLM
     llm = init_llm()
@@ -101,11 +147,17 @@ def chat(debug_mode=False):
     # 初始化记忆
     memory = ConversationSummaryMemory(llm=llm)
     
-    # 创建对话和审查链
+    # 创建对话链
     conversation_chain = create_conversation_chain(llm)
-    review_chain = create_review_chain(llm)
+    
+    # 创建敏感话题过滤器
+    sensitivity_filter = create_sensitivity_filter(llm, sensitivity_rules)
+    
+    # 创建文本审查链
+    review_chain = create_review_chain(llm, review_rules)
     
     memory_summary = ""  # 用于存储上下文
+    default_reply = "对不起，这个话题不在我的讨论范围之内。"
 
     while True:
         try:
@@ -114,29 +166,32 @@ def chat(debug_mode=False):
             if human_input.lower() in ["exit", "quit", "结束"]:
                 break
 
-            # 组合输入内容
-            inputs = {"history": memory_summary, "input": human_input, "system_setup": setup_system(character_config)}
-            logging.debug(f"对话链输入: {inputs}")
-            
-            # 获取机器人回答
-            response = conversation_chain.invoke(inputs)
-            logging.debug(f"生成的回复: {response}")
-            
-            # 组合审查输入
-            review_inputs = {
-                "response": response,
-                "review_rules": review_rules_config
-            }
-            
-            # 审查阶段
-            reviewed_response = review_chain.invoke(review_inputs)
-            logging.debug(f"审查后的回复: {reviewed_response}")
-
+            # 过滤用户输入中的敏感话题
+            if sensitivity_filter(human_input):
+                response = default_reply
+            else:
+                # 组合输入内容
+                inputs = {"history": memory_summary, "input": human_input, "system_setup": setup_system(character_config)}
+                logging.debug(f"对话链输入: {inputs}")
+                
+                # 获取机器人回答
+                response = conversation_chain.invoke(inputs)
+                logging.debug(f"生成的回复: {response}")
+                
+                # 过滤LLM回复中的敏感话题
+                if sensitivity_filter(response):
+                    response = default_reply
+                    logging.info("LLM回复中包含敏感话题，使用默认回复。")
+                
+                # 润色文本
+                response = review_chain(response)
+                
             # 输出最终结果
-            print(f"{role_name}: {reviewed_response}")
+            print(f"{role_name}: {response}")
 
-            # 更新记忆摘要
-            memory_summary += f"\n{human_input}\n{reviewed_response}"
+            # 更新记忆摘要（仅在回复不包含敏感话题时）
+            if response != default_reply:
+                memory_summary += f"\n{human_input}\n{response}"
         
         except Exception as e:
             logging.error(f"发生错误：{e}")
