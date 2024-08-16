@@ -3,6 +3,7 @@ import os
 from langchain_community.llms import Ollama
 from langchain.prompts import PromptTemplate
 from langchain.memory import ConversationSummaryMemory
+import re
 
 # 配置日志
 def setup_logging(debug_mode):
@@ -10,7 +11,7 @@ def setup_logging(debug_mode):
     if debug_mode:
         logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
     else:
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def load_text_config(file_path):
     """读取纯文本配置文件"""
@@ -57,6 +58,8 @@ def create_conversation_chain(llm):
     )
     return conversation_prompt_template | llm
 
+import logging
+
 def create_sensitivity_filter(llm, sensitivity_rules):
     """创建敏感话题过滤器"""
     filter_prompt_template = PromptTemplate(
@@ -65,23 +68,47 @@ def create_sensitivity_filter(llm, sensitivity_rules):
         以下是敏感话题的描述：
         {sensitivity_rules}
 
-        请根据这些描述判断以下文本是否涉及敏感话题，违反其中任何一条都视做敏感话题：
+        请根据这些描述判断以下文本是否涉及敏感话题，违反其中任何一条都视为涉及敏感话题：
         文本：{text}
 
-        请返回一个置信度分数（0-1）表示文本是否涉及敏感话题。如果置信度高于0.5，则说明涉及敏感话题。"""
+        如果文本涉及敏感话题，请返回 "Danger"；如果不涉及敏感话题，请返回 "Pass"。"""
     )
-    
+
+    error_reminder_template = """
+        我收到的结果格式不正确。请确保仅返回 "Danger" 或 "Pass"，准确表示文本是否涉及敏感话题。
+        重新考虑以下文本：
+        文本：{text}
+        敏感话题描述：{sensitivity_rules}
+    """
+
     def filter_sensitive_text(text):
-        prompt = filter_prompt_template.format(text=text, sensitivity_rules=sensitivity_rules)
-        try:
-            result = llm.invoke(prompt)
-            confidence = float(result.strip())
-            if confidence > 0.5:
-                return True
-            return False
-        except Exception as e:
-            logging.error(f"敏感话题检测发生错误: {e}")
-            return False
+        max_attempts = 10
+        attempts = 0
+        while attempts < max_attempts:
+            attempts += 1
+            prompt = filter_prompt_template.format(text=text, sensitivity_rules=sensitivity_rules)
+            try:
+                result = llm.invoke(prompt).strip().lower()
+                
+                # Check for 'danger' or 'pass' in the response
+                if "danger" in result:
+                    logging.info(f"第 {attempts} 次尝试，结果包含 'Danger'")
+                    return True
+                elif "pass" in result:
+                    logging.info(f"第 {attempts} 次尝试，结果包含 'Pass'")
+                    return False
+                else:
+                    logging.debug(f"敏感话题检测返回的结果无法解析为“Danger”或“Pass” (尝试 {attempts}/{max_attempts})：{result}")
+            except Exception as e:
+                logging.debug(f"敏感话题检测发生错误 (尝试 {attempts}/{max_attempts})：{e}")
+
+            # 生成新的提醒prompt，并继续尝试
+            reminder_prompt = error_reminder_template.format(text=text, sensitivity_rules=sensitivity_rules)
+            llm.invoke(reminder_prompt)
+
+        # 达到最大尝试次数后，默认返回 True，保守处理，认为涉及敏感话题
+        logging.error("超过最大尝试次数，默认返回True")
+        return True
 
     return filter_sensitive_text
 
@@ -142,7 +169,7 @@ def chat(debug_mode=False):
     
     # 提取角色名称
     role_name = extract_role_name(llm, character_config)
-    logging.info(f"提取的角色名称: {role_name}")
+    logging.info(f"我叫: {role_name}")
     
     # 初始化记忆
     memory = ConversationSummaryMemory(llm=llm)
@@ -157,7 +184,7 @@ def chat(debug_mode=False):
     review_chain = create_review_chain(llm, review_rules)
     
     memory_summary = ""  # 用于存储上下文
-    default_reply = "对不起，这个话题不在我的讨论范围之内。"
+    default_reply = "看向远方，默不作声。"
 
     while True:
         try:
