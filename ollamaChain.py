@@ -274,9 +274,6 @@ def chat(debug_mode=False):
     role_name = extract_role_name(llm, character_config)
     logging.info(f"我叫: {role_name}")
     
-    # 初始化记忆
-    memory = ConversationSummaryMemory(llm=llm)
-    
     # 创建对话链
     conversation_chain = create_conversation_chain(llm)
     
@@ -309,6 +306,7 @@ def chat(debug_mode=False):
                 else:
                     # 组合输入内容
                     inputs = {"history": memory_summary, "input": human_input, "system_setup": setup_system(character_config)}
+                    logging.debug(f"记忆: {memory_summary}")
                     logging.debug(f"对话链输入: {inputs}")
                     
                     # 获取机器人回答
@@ -335,5 +333,6 @@ def chat(debug_mode=False):
 
 # 启动聊天
 if __name__ == '__main__':
-    debug_mode = os.getenv("DEBUG_MODE", "true").lower() == "true"
+    debug_mode = os.getenv("DEBUG_MODE", "false").lower() == "true"
+    # debug_mode = True
     chat(debug_mode=debug_mode)
