@@ -30,7 +30,7 @@ CONFIG_FILE = "config.json"
 with open(CONFIG_FILE, 'r') as f:
     config = json.load(f)
     DEEPSEEK_API_KEY = config["deepseek_api_key"]
-    
+
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-chat"
 
@@ -163,6 +163,14 @@ def scan_directory(directory: str, page: int = 1) -> str:
     Returns:
         str: JSON 格式的分页文件路径列表，或错误信息。
     """
+    import os
+    import json
+    from fnmatch import fnmatch
+    
+    def normalize_path(path: str) -> str:
+        """将路径统一转换为斜杠格式并规范化"""
+        return os.path.normpath(path).replace(os.sep, '/')
+
     if not os.path.exists(directory):
         return json.dumps({"error": f"目录 {directory} 不存在"}, ensure_ascii=False)
 
@@ -177,39 +185,81 @@ def scan_directory(directory: str, page: int = 1) -> str:
                     ignore_patterns.append(line)
 
     code_files = []
+    directory = os.path.normpath(directory)
+    
     for root, dirs, files in os.walk(directory, topdown=True):
-        # 获取当前目录的相对路径
+        # 获取当前目录的相对路径并规范化
         rel_root = os.path.relpath(root, directory)
+        rel_root = normalize_path(rel_root)
 
-        # 跳过以 '.' 开头的目录（如 .vscode、.git）
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-
-        # 检查当前目录是否被 .gitignore 忽略
-        if rel_root != ".":
-            rel_root_path = rel_root + os.sep
-            if any(fnmatch(rel_root_path, pattern) or fnmatch(rel_root, pattern) for pattern in ignore_patterns):
+        # 先处理目录过滤
+        new_dirs = []
+        for d in dirs:
+            # 屏蔽以 '.' 开头的目录
+            if d.startswith("."):
                 continue
 
-        for file in files:
-            # 只处理指定代码文件类型
-            if file.endswith((".cpp", ".h", ".cs", ".py", ".js")):
-                file_path = os.path.join(rel_root, file) if rel_root != "." else file
-                full_path = os.path.join(root, file)
-
-                # 检查文件是否被 .gitignore 忽略
-                ignored = False
-                for pattern in ignore_patterns:
-                    # 处理目录和文件模式
-                    if pattern.endswith("/"):
-                        if fnmatch(file_path + "/", pattern):
-                            ignored = True
-                            break
-                    elif fnmatch(file_path, pattern) or fnmatch(file, pattern):
+            # 构建目录的相对路径
+            dir_rel_path = normalize_path(os.path.join(rel_root, d))
+            
+            # 检查目录是否被忽略
+            ignored = False
+            for pattern in ignore_patterns:
+                # 处理目录匹配规则
+                normalized_pattern = normalize_path(pattern)
+                
+                # 模式以 / 结尾表示目录匹配
+                if normalized_pattern.endswith('/'):
+                    dir_pattern = normalized_pattern.rstrip('/')
+                    if fnmatch(dir_rel_path, dir_pattern) or dir_rel_path.startswith(dir_pattern + '/'):
+                        ignored = True
+                        break
+                else:
+                    if fnmatch(dir_rel_path, normalized_pattern):
+                        ignored = True
+                        break
+                    # 检查是否作为父目录被匹配
+                    if '/' + normalized_pattern + '/' in '/' + dir_rel_path + '/':
                         ignored = True
                         break
 
-                if not ignored:
-                    code_files.append(full_path)
+            if not ignored:
+                new_dirs.append(d)
+        dirs[:] = new_dirs
+
+        # 处理文件过滤
+        for file in files:
+            # 只处理指定代码文件类型
+            if not file.endswith((".cpp", ".h", ".cs", ".py", ".js", ".ts")):
+                continue
+
+            # 构建文件相对路径并规范化
+            file_rel_path = normalize_path(os.path.join(rel_root, file)) if rel_root != "." else file
+
+            # 检查文件是否被忽略
+            ignored = False
+            full_path = normalize_path(os.path.join(root, file))
+            
+            for pattern in ignore_patterns:
+                normalized_pattern = normalize_path(pattern)
+                
+                # 处理目录匹配规则（模式以/结尾）
+                if normalized_pattern.endswith('/'):
+                    dir_pattern = normalized_pattern.rstrip('/')
+                    if fnmatch(file_rel_path, dir_pattern) or file_rel_path.startswith(dir_pattern + '/'):
+                        ignored = True
+                        break
+                else:
+                    if fnmatch(file_rel_path, normalized_pattern):
+                        ignored = True
+                        break
+                    # 检查父目录是否匹配
+                    if '/' + normalized_pattern + '/' in '/' + file_rel_path + '/':
+                        ignored = True
+                        break
+
+            if not ignored:
+                code_files.append(full_path)
 
     if not code_files:
         return json.dumps({"content": "没有找到符合条件的代码文件", "page": 1, "total_pages": 1, "remaining_pages": 0}, ensure_ascii=False)
