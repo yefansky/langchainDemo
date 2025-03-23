@@ -419,27 +419,45 @@ def invoke_tools(response):
         tool_calls = response.additional_kwargs["tool_calls"]
         for call in tool_calls:
             tool_name = call["function"]["name"]
-            args = json.loads(call["function"]["arguments"])  # 改为 json.loads 以避免 eval 的安全风险
+            args = json.loads(call["function"]["arguments"])
             tool = next(t for t in tools if t.name == tool_name)
-            result = tool.invoke(args)
-            result_dict = json.loads(result)
-            if "error" in result_dict:
-                return result
-            if tool_name == "scan_directory":
-                state["files"].append(result_dict)
-            elif tool_name == "search_full_text":
-                state["search_results"].append(result_dict)
-            elif tool_name in ["read_file", "observe_context"]:
-                state["context"].append(result_dict)
-            return result
+            result_str = tool.invoke(args)
+            
+            try:
+                # 解析工具返回结果
+                result_dict = json.loads(result_str)
+                # 包装为 observation 类型
+                observation = {
+                    "type": "observation",
+                    "content": result_dict
+                }
+                # 更新状态（保持原有逻辑）
+                if tool_name == "scan_directory":
+                    state["files"].append(result_dict)
+                elif tool_name == "search_full_text":
+                    state["search_results"].append(result_dict)
+                elif tool_name in ["read_file", "observe_context"]:
+                    state["context"].append(result_dict)
+                # 返回包装后的结果
+                return json.dumps(observation, ensure_ascii=False)
+            except json.JSONDecodeError:
+                error_obs = {
+                    "type": "observation",
+                    "content": {"error": "工具返回无效JSON"}
+                }
+                return json.dumps(error_obs, ensure_ascii=False)
     else:
         try:
             result_dict = json.loads(response.content)
-            if result_dict["type"] == "reflection":
+            if result_dict.get("type") == "reflection":
                 state["reflection_count"] += 1
             return response.content
         except json.JSONDecodeError:
-            return json.dumps({"error": f"无效输出: {response.content}"}, ensure_ascii=False)
+            error_obs = {
+                "type": "observation",
+                "content": {"error": f"无效输出: {response.content}"}
+            }
+            return json.dumps(error_obs, ensure_ascii=False)
 
 llm = ChatOpenAI(
     model=DEEPSEEK_MODEL,
@@ -494,8 +512,13 @@ def run_agent_with_memory(initial_input: str):
             elif result_dict["type"] == "observation":
                 if task_stack:
                     current_task = task_stack[-1]
-                    current_task["observations"].append(result_dict["content"])
-                    process_memory(initial_input, result)
+                    # 使用 content 字段中的实际内容
+                    observation_content = result_dict["content"].get("content") or str(result_dict["content"])
+                    current_task["observations"].append(observation_content)
+                    
+                    # 记忆处理使用原始输入和观察内容
+                    process_memory(initial_input, observation_content)
+                    
                     agent_scratchpad.append(AIMessage(content=result))
                     if current_task["current_step"] < len(current_task["plan"]) - 1:
                         current_task["current_step"] += 1
